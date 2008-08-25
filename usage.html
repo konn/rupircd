@@ -1,0 +1,112 @@
+<?xml version="1.0" ?>
+<!DOCTYPE html 
+  PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Usage.rd</title>
+</head>
+<body>
+<h1><a name="label-0" id="label-0">Usage</a></h1><!-- RDLabel: "Usage" -->
+<h2><a name="label-1" id="label-1">Start up</a></h2><!-- RDLabel: "Start up" -->
+<p>To start up server on 6667, to execute this command: </p>
+<pre>$ ruby ircd.rb [Configuration File(e.g. sample.conf)]</pre>
+<p>It might shut down when it received ^C (SIGINT).</p>
+<h2><a name="label-2" id="label-2">How to write configuration file</a></h2><!-- RDLabel: "How to write configuration file" -->
+<p>Contents of sample.conf might be like this:</p>
+<pre>Conf = {
+  :Motd =&gt; open("motd.txt"){|f| f.read }.tojis,
+  :Info =&gt; open("info.txt"){|f| f.read }.tojis,
+  :Port =&gt; 6667,
+  :Opers =&gt; {"superoper*"=&gt;"ea703e7aa1efda0064eaa507d9e8ab7e"},
+  :MaxClients =&gt; 100,
+  :PINGInterval =&gt; 300,
+  :PINGLimit =&gt; 90,
+}</pre>
+<p>As you can see, its contents is written in Ruby Hash Object.
+To configure, write like this;</p>
+<pre>　
+:name =&gt; value, </pre>
+<p>between "{" and "}" .</p>
+<p>For now, you can configure these items: </p>
+<dl>
+<dt><a name="label-3" id="label-3">:Motd</a></dt><!-- RDLabel: ":Motd" -->
+<dd>
+Set down the paragraph shown first when user connected to Server.  It's good to write the information, greetings, your poem, line-shoot, bla bla bla...
+In sample.conf, it is set to contents of "info.txt".
+</dd>
+<dt><a name="label-4" id="label-4">:Info</a></dt><!-- RDLabel: ":Info" -->
+<dd>
+Set down the paragraph for answer to INFO command.
+It's good to write server's information or history.
+In sample.conf, it is set to contents of "info.txt".
+</dd>
+<dt><a name="label-5" id="label-5">:Port</a></dt><!-- RDLabel: ":Port" -->
+<dd>
+The port server will be running on. Please select unused port. (recommended: 6660 ~ 6669).
+In sample.conf, it is set to 6667.
+</dd>
+<dt><a name="label-6" id="label-6">:Opers</a></dt><!-- RDLabel: ":Opers" -->
+<dd>
+Hash of password and the mask of server operator's name.
+To know more detail, read "((How to use OPER))".
+</dd>
+<dt><a name="label-7" id="label-7">:MaxClients</a></dt><!-- RDLabel: ":MaxClients" -->
+<dd>
+Number of the clients which can connect to server in same time.
+In sample.conf, it is set to 100.
+</dd>
+<dt><a name="label-8" id="label-8">:PINGInterval</a></dt><!-- RDLabel: ":PINGInterval" -->
+<dd>
+Interval of time to ping (sec).
+After some seconds(set down in :PINGLimit) server send to PING, server disconnect the clients if clients doesn't respond PONG.
+In sample.conf, it's set to 300sec.
+</dd>
+<dt><a name="label-9" id="label-9">:PINGLimit</a></dt><!-- RDLabel: ":PINGLimit" -->
+<dd>
+Seconds the server wait for PONG message from clients after server sent PING. 
+In sample.conf, it's set to 90 seconds.
+</dd>
+</dl>
+<p>I will add items when in the mood.</p>
+<h1><a name="label-10" id="label-10">How to use OPER</a></h1><!-- RDLabel: "How to use OPER" -->
+<h2><a name="label-11" id="label-11">Configuration</a></h2><!-- RDLabel: "Configuration" -->
+<p>Oper means Server Operator. It is user who has the authority to restart, stop  and rehash server.</p>
+<p>To become an Oper requires the pair of correct OPER nick name and password. Conversely, anybody can become an Oper if he/she knows those.
+To get authority of Oper, you have to send OPER message to the server.
+For example, if Oper nick name is oper and password is foo, to send this:</p>
+<pre>OPER oper1 hoge</pre>
+<p>to be an Oper.</p>
+<p>You can set these combination in the configuration file. Like this:</p>
+<dl>
+<dt><a name="label-12" id="label-12">Opers =&gt; {OPER1 =&gt; pass1, OPER2 =&gt; pass2, ...},</a></dt><!-- RDLabel: "Opers => {OPER1 => pass1, OPER2 => pass2, ...}," -->
+</dl>
+<p>For example, in sample.conf:</p>
+<dl>
+<dt><a name="label-13" id="label-13">Opers =&gt; {"superoper*" =&gt; "ea703e7aa1efda0064eaa507d9e8ab7e"},</a></dt><!-- RDLabel: "Opers => {"superoper*" => "ea703e7aa1efda0064eaa507d9e8ab7e"}," -->
+</dl>
+<p>In this case, relate Oper name starts from "superoper" and password "hoge".</p>
+<p>Password is encrypted by MD5. To know the MD5-value for any password, use included program "mkpassword.rb" :</p>
+<pre>$ ruby mkpassword.rb password</pre>
+<h2><a name="label-14" id="label-14">Available commands on Oper</a></h2><!-- RDLabel: "Available commands on Oper" -->
+<dl>
+<dt><a name="label-15" id="label-15">REHASH</a></dt><!-- RDLabel: "REHASH" -->
+<dd>
+Reload the configuration file.
+</dd>
+<dt><a name="label-16" id="label-16">CLOSE</a></dt><!-- RDLabel: "CLOSE" -->
+<dd>
+Close the connection between all clients and the server.
+</dd>
+<dt><a name="label-17" id="label-17">RESTART</a></dt><!-- RDLabel: "RESTART" -->
+<dd>
+Restart the server.
+</dd>
+<dt><a name="label-18" id="label-18">DIE</a></dt><!-- RDLabel: "DIE" -->
+<dd>
+Shut down the server.
+</dd>
+</dl>
+
+</body>
+</html>
