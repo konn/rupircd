@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name = "rupircd"
-  s.version = "0.5b2"
+  s.version = "0.5.1"
   s.date = "2008-08-27"
   s.summary = "rupircd - RUby Pseudo IRC Daemon"
   s.email = "mr_konn[at]jcom[dot]home[dot]ne[dot]jp"
