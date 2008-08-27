@@ -1,5 +1,7 @@
 =begin
 = ChangeLog
+== ver 0.5b2 2008-08-27T12:17:46+09:00
+* Change directory construction
 == ver 0.5b1 2007-05-18T22:30:56+09:00
 * Fix the bug about space charactor in privmsg/notice. (Thanks>kusigahama)
 * Implement OPER

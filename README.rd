@@ -1,9 +1,9 @@
 =begin
 = rupircd -- Ruby Pseudo IRC Deamon
 
-  ver 0.2b1 2007-04-29T19:32:40+09:00
+  ver 0.5b2 2008-08-27T12:17:46+09:00
   
-  Copyright (c) 2007 konn <banzaida_at_jcom_dot_home_dot_ne_dot_jp>
+  Copyright (c) 2008 Hiromi Ishii
   
   You can redistribute it and/or modify it under the same term as Ruby.
 
