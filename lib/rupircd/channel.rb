@@ -81,22 +81,22 @@ class ChannelMode
       when ?t
         @topic_op_only = toggle
       when ?o
-        sock = @server.sock_from_nick(param.shift)
+        user = @server.user_from_nick(param.shift)
         if toggle
-          @ops << sock
+          @ops << user
           @ops.compact!
           @ops.uniq!
         else
-          @ops.delete(sock)
+          @ops.delete(user)
         end
       when ?v
-        nick = @server.sock_from_nick(param.shift)
+        user = @server.user_from_nick(param.shift)
         if toggle
-          @voices << nick
+          @voices << user
           @voices.uniq!
           @voices.compact!
         else
-          @voices.delete(nick)
+          @voices.delete(user)
         end
       when ?b, ?e, ?I
         masks = param.shift
@@ -182,7 +182,7 @@ class ChannelMode
     @ops.push hoge
   end
 
-  def unregist(who)
+  def unregister(who)
     @ops.delete(who)
     @voices.delete(who)
   end
@@ -228,7 +228,7 @@ class Channel
   end
 
   def join(who, key="")
-    if @mode.banned?(@server.get_user(who))
+    if @mode.banned?(who)
       ["474", @name, "Cannot join channel (+b)"]
     elsif @mode.invite && !@invited.include?(who)
       ["473", @name, "Cannot join channel (+i)"]
@@ -237,16 +237,16 @@ class Channel
     elsif @mode.user_max >= @members.size
       ["471", @name, "Cannot join channel (+l)"]
     elsif !joined?(who)
-      @server.get_user(who).joined_channels.push @name
+      who.joined_channels.push self
       @members.unshift who
       
       @mode.add_op who if @members.size == 1
       sends = []
       sends << get_topic(who)
       sends += names(who)
-      @server.send_client_message(who, @server.get_user(who), Command::JOIN, @name)
+      @server.send_client_message(who, who, Command::JOIN, @name)
       @server.handle_reply(who, sends)
-      send_to_members_without(who, Command::JOIN, @name)
+      send_to_other_members(who, Command::JOIN, @name)
       return nil
     end
   end
@@ -255,25 +255,25 @@ class Channel
     if !@members.include?(by)
       ["442", @name, "You're not on that channel"]
     elsif !@members.include?(who)
-      ["441", @server.get_user(who).nick, @name, "They aren't on that channel"]
+      ["441", who.nick, @name, "They aren't on that channel"]
     elsif @mode.op?(by)
-      send_to_members(by, Command::KICK, @name, @server.get_user(who).nick, msg)
-      unregist(who)
+      send_to_members(by, Command::KICK, @name, who.nick, msg)
+      unregister(who)
       nil
     else
       ["482", @name, "You're not channel operator"]
     end
   end
 
-  def send_to_members(sock, command, *args)
+  def send_to_members(user, command, *args)
     @members.each{|mem|
-      @server.send_client_message(mem, @server.get_user(sock), command, *args)
+      @server.send_client_message(mem, user, command, *args)
     }
   end
 
-  def send_to_members_without(sock, command, *args)
-    (@members-[sock]).each{|mem|
-      @server.send_client_message(mem, @server.get_user(sock), command, *args)
+  def send_to_other_members(user, command, *args)
+    (@members-[user]).each{|mem|
+      @server.send_client_message(mem, user, command, *args)
     }
   end
 
@@ -285,21 +285,20 @@ class Channel
     if !joined?(from)
       return ["442", @name, "You're not on that channel"]
     elsif joined?(who)
-      return ["443", @server.get_user(who).nick, "is already on channel"]
+      return ["443", who.nick, "is already on channel"]
     elsif !@mode.can_invite?(from)
       return ["482", @name, "You're not channel operator"]
     else 
       @invited.push who
-      @server.send_client_message(who, @server.get_user(from), Command::INVITE, @server.get_user(who).nick, @name)
-      return ["341", @server.get_user(who).nick, @name]
+      @server.send_client_message(who, from, Command::INVITE, who.nick, @name)
+      return ["341", who.nick, @name]
     end
   end
 
-  def unregist(who)
-    usr = @server.get_user(who)
-    @members.delete(who)
-    @mode.unregist(who)
-    usr.joined_channels.delete(@name)
+  def unregister(usr)
+    @members.delete(usr)
+    @mode.unregister(usr)
+    usr.joined_channels.delete(self)
   end
 
   def handle_mode(who, params)
@@ -323,7 +322,7 @@ class Channel
   def part(who, message="")
     if joined?(who)
       send_to_members(who, Command::PART, @name, message)
-      unregist(who)
+      unregister(who)
       return nil
     else
       return ["442", @name, "You're not on that channel"]
@@ -342,8 +341,8 @@ class Channel
     end
   end
 
-  def get_topic(sock, text=false)
-    return nil if @mode.secret && !joined?(sock)
+  def get_topic(user, text=false)
+    return nil if @mode.secret && !joined?(user)
     return @topic if text
     if @topic.empty?
       ["331", @name, "No topic is set"]
@@ -356,7 +355,7 @@ class Channel
     if @mode.n && !@members.include?(who)
       return ["404", @name, "Cannot send to channel"]
     elsif @mode.can_talk?(who)
-      send_to_members_without(who, Command::PRIVMSG, @name, msg)
+      send_to_other_members(who, Command::PRIVMSG, @name, msg)
       nil
     else
       return ["404", @name, "Cannot send to channel"]
@@ -365,24 +364,31 @@ class Channel
 
   def notice(who, msg)
     if @mode.can_talk?(who)
-      send_to_members_without(who, Command::NOTICE, @name, msg)
+      send_to_other_members(who, Command::NOTICE, @name, msg)
     end
     return nil
   end
 
-  def visible?(sock)
-    !@mode.secret || joined?(sock)
+  def visible?(user)
+    !@mode.secret || joined?(user)
   end
 
-  def names(sock)
-    return nil if @mode.secret && !joined?(sock)
+  def names(user)
+    return nil if @mode.secret && !joined?(user)
     mems = @members.dup
-    unless @members.include?(sock)
-      mems = mems.find_all{|s|
-        (usr = @server.get_user(s)) && !usr.invisible
+    unless @members.include?(user)
+      mems = mems.find_all{|usr|
+        !usr.invisible
       }
     end
-    memlist = mems.map{|us| (@mode.op?(us)?"@":"")+@server.get_user(us).nick}.join(" ")
+    memlist = mems.map{|us|
+      if @mode.op?(us)
+        pr = "@"
+      else
+        pr = ""
+      end
+      pr+us.nick
+    }.join(" ")
     sends = []
     unless memlist.empty?
       prefix = if @mode.secret
@@ -401,7 +407,7 @@ class Channel
 end
 
 class NoModeChannel < Channel
-  def handle_mode(sock, *ar)
+  def handle_mode(user, *ar)
     ["477", @name, "Channel doesn't support modes"]
   end
 end

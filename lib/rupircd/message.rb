@@ -68,7 +68,7 @@ module IRCd
 
     def to_s
       str = ''
-      if @prefix
+      if @prefix && !@prefix.to_s.empty?
         str << ':'
         str << @prefix
         str << ' '

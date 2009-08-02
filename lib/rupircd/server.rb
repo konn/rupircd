@@ -18,7 +18,7 @@ require 'rupircd/channel.rb'
 require 'rupircd/user'
 require 'rupircd/utils.rb'
 require 'rupircd/message.rb'
-require 'rupircd/mykconv'
+require 'rupircd/charcode'
 require 'rupircd/conf'
 
 module IRCd
@@ -38,10 +38,9 @@ class IRCServer < WEBrick::GenericServer
   end
 
   def init
-    @sockets = []
     @operators = []
     @channels = {}
-    @users = {}
+    @users = []
     @users.extend(MonitorMixin)
     @ping_threads = {}
     @ping_threads.extend(MonitorMixin)
@@ -52,22 +51,19 @@ class IRCServer < WEBrick::GenericServer
       cf[mask_to_regex(nick)] = pass
     }
     config[:Opers].replace(cf)
+    config[:ServerName] = "127.0.0.1"
   end
 
-  def sock_from_nick(nick)
-    if u = @users.find{|u, k| k.nick == nick}
-      u[0]
-    else
-      nil
-    end
+  def user_from_nick(nick)
+    u = @users.find{|u| u.nick == nick}
   end
   
-  def start_ping(sock)
-    @ping_threads[sock] = Thread.new{
+  def start_ping(user)
+    @ping_threads[user] = Thread.new{
       sleep(config[:PINGInterval])
-      send_client_message(sock, nil, PING, config[:ServerName])
+      send_client_message(user, nil, PING, config[:ServerName])
       sleep(config[:PINGLimit])
-      unregist(sock, "PING Timeout")
+      unregister(user, "PING Timeout")
     }
   end
   
@@ -96,7 +92,7 @@ class IRCServer < WEBrick::GenericServer
           end
         when NICK
           nick = msg.params[0]
-          if @users.values.any?{|us| us.nick == nick}
+          if us = @users.find{|us| us.nick == nick}
             socket.puts ERR_NICKNAMEINUSE.new(config[:ServerName], "433", [nick, "Nickname is already in use"])
             nick = nil
           else
@@ -106,73 +102,66 @@ class IRCServer < WEBrick::GenericServer
       end
     end
     return unless nick && user
-    start_ping(socket)
-    @sockets << socket
+    start_ping(user)
     begin
       host = Resolv.getname(socket.addr[-1])
     rescue
       host = socket.addr[-1]
     end
-    user = User.new(nick, "~"+user[0].split("@")[0], host, user[-1], user[1])
+    user = User.new(nick, "~"+user[0].split("@")[0], host, user[-1], socket, user[1])
     @old_nicks[nick].unshift user.to_a
-    @users[socket] = user
-    send_server_message(socket, "001", "Welcome to the Internet Relay Network #{user}")
-    send_server_message(socket, "002", "Your host is #{config[:ServerName]}, running version 0.1b")
-    send_server_message(socket, "003", "This server was created #{Time.now}")
-    send_server_message(socket, "004", "#{config[:ServerName]} 0.1b aiwroOs oavimnqsrtklObeI")
-    print_motd(socket)
+    @users << user
+    send_server_message(user, "001", "Welcome to the Internet Relay Network #{user}")
+    send_server_message(user, "002", "Your host is #{config[:ServerName]}, running version 0.1b")
+    send_server_message(user, "003", "This server was created #{Time.now}")
+    send_server_message(user, "004", "#{config[:ServerName]} 0.1b aiwroOs oavimnqsrtklObeI")
+    print_motd(user)
     while !socket.closed? && line = socket.gets
-      recv_message(socket, line)
+      recv_message(user, line)
     end
-    unregist(socket)
+    unregister(user)
   end
 
-  def unregist(socket, msg="EOF From client")
+  def unregister(user, msg="EOF From client")
     synchronize do
-      @sockets.delete(socket)
-      @ping_threads[socket].kill if @ping_threads.has_key?(socket)
-      sended = []
-      if @users.include?(socket)
-        @users[socket].joined_channels.each{|chname|
-          ch = @channels[chname]
-          ch.unregist(socket)
+      socket = user.socket
+      @ping_threads[user].kill if @ping_threads.has_key?(socket)
+      sent = []
+      if @users.include?(user)
+        user.joined_channels.each{|ch|
+          ch.unregister(user)
           ch.members.each{|mem|
-            unless sended.include?(mem)
-              begin
-                sended.push mem
-                mem.puts QUIT.new(@users[socket].to_s, "QUIT", [msg])
-              rescue
-                next
-              end
+            unless sent.include?(mem)
+                sent << mem
+                send_client_message(mem, user, QUIT, msg)
             end
           }
-          @channels.delete(chname) if ch.members.empty?
+          @channels.reject!{|k,v|v==ch} if ch.members.empty?
         }
-        @users.delete(socket)
+        @users.delete(user)
       end
     end
-    socket.close unless socket.closed?
+    user.socket.close unless user.socket.closed?
   end
 
-  def print_motd(sock)
-    send_server_message(sock, "375", "- #{config[:ServerName]} Message of the day - ")
+  def print_motd(user)
+    send_server_message(user, "375", "- #{config[:ServerName]} Message of the day - ")
     config[:Motd].each_line{|line|
       line.chomp!
-      send_server_message(sock, "372", "- " + line)
+      send_server_message(user, "372", "- " + line)
     }
-    send_server_message(sock, "376", "End of MOTD command")
+    send_server_message(user, "376", "End of MOTD command")
   end
 
-  def oper_proc(sock, &pr)
-    usr = @users[sock]
+  def oper_proc(usr, &pr)
     if usr.operator || usr.local_operator
-      pr.call(sock)
+      pr.call(usr)
     else
-      send_server_message(sock, "481", "Permission Denied - You're not an IRC operator")
+      send_server_message(usr, "481", "Permission Denied - You're not an IRC operator")
     end
   end
 
-  def recv_message(sock, line)
+  def recv_message(user, line)
     line.chomp!
     return if line.empty?
     begin
@@ -181,59 +170,59 @@ class IRCServer < WEBrick::GenericServer
       @used[msg.command.upcase][0] += 1
       case msg
       when MOTD
-        print_motd(sock)
+        print_motd(user)
       when LUSERS
-        send_server_message(sock, "251", "There are #{@users.size} users and 0 services on 1 servers")
+        send_server_message(user, "251", "There are #{@users.size} users and 0 services on 1 servers")
         unless @operators.empty?
-          send_server_message(sock, "252", @operators.size, "operator(s) online")
+          send_server_message(user, "252", @operators.size, "operator(s) online")
         end
         unless @channels.empty?
-          send_server_message(sock, "254", @channels.size, "channels formed")
+          send_server_message(user, "254", @channels.size, "channels formed")
         end
-        send_server_message(sock, "255", "I have #{@users.size} clients and 0 servers")
+        send_server_message(user, "255", "I have #{@users.size} clients and 0 servers")
       when OPER
         raise NotEnoughParameter if params.size < 2
         nick, pass = params
         unless opdic = config[:Opers].find{|k, v| k =~ nick}
-          send_server_message(sock, "491", "No O-lines for your host")
+          send_server_message(user, "491", "No O-lines for your host")
           return
         end
         if Digest::MD5.hexdigest(pass) == opdic[1]
-          @users[sock].operator = true
-          @users[sock].local_operator = true
-          @operators.push sock
-          send_server_message(sock, "381", "You are now an IRC operator")
+          user.operator = true
+          user.local_operator = true
+          @operators.push user
+          send_server_message(user, "381", "You are now an IRC operator")
         else
-          send_server_message(sock, "464", "Password incorrect")
+          send_server_message(user, "464", "Password incorrect")
         end
       when CLOSE
         @users.synchronize do
-          oper_proc(sock) do
-            @sockets.each{|s| unregist(s) }
+          oper_proc(user) do
+            @users.each{|s| unregister(s) }
           end
         end
       when DIE
-        oper_proc(sock) do
+        oper_proc(user) do
           shutdown
           exit!
         end
       when REHASH
-        oper_proc(sock) do |sck|
+        oper_proc(user) do |usr|
           cnf = @fconf.load
           if Hash === cnf
             config.replace(cnf)
-            send_server_message(sck, "382", "#{@fconf.path} :Rehashing")
+            send_server_message(usr, "382", "#{@fconf.path} :Rehashing")
           else
             raise "Invalid Conf file"
           end
         end
       when RESTART
-        oper_proc(sock) do |sck|
-          @sockets.each{|s| unregist(s) }
+        oper_proc(user) do |usr|
+          @users.each{|s| unregister(s) }
           init
         end
       when VERSION
-        send_server_message(sock, "351", "rupircd-01b.0 #{config[:ServerName]} :Ruby Pseudo IRCD 0.1b")
+        send_server_message(user, "351", "rupircd-01b.0 #{config[:ServerName]} :Ruby Pseudo IRCD 0.1b")
       when STATS
         if params.empty?
           raise NotEnoughParameter
@@ -245,7 +234,7 @@ class IRCServer < WEBrick::GenericServer
           
         when ?m
           @used.each_pair{|cmd, val|
-            send_server_message(sock, "212", cmd, val)
+            send_server_message(user, "212", cmd, val[0])
           }
         when ?o
           
@@ -257,22 +246,22 @@ class IRCServer < WEBrick::GenericServer
           vs -= hours * 3600
           minutes = vs/60
           vs -= minutes * 60
-          send_server_message(sock, "242", format("Server Up %d days %d:%02d:%02d",days,hours,minutes,vs))
+          send_server_message(user, "242", format("Server Up %d days %d:%02d:%02d",days,hours,minutes,vs))
         end
-        send_server_message(sock, "219", c.chr, "End of STATS report")
+        send_server_message(user, "219", c.chr, "End of STATS report")
       when JOIN
         if params[0] == "0"
-          @users[sock].joined_channels.each{|ch|
-            @channels[ch].part(sock, "")
+          user.joined_channels.each{|ch|
+            channel(ch).part(user, "")
           }
-          @users[sock].joined_channels = []
+          user.joined_channels = []
         else
           chs = params[0].split(",")
           keys = msg.params[1].split(",") if params.size >= 2
           keys ||= []
           chs.each_with_index{|ch, i|
             unless channame?(ch)
-              send_server_message(sock, "403", ch, "No such channel")
+              send_server_message(user, "403", ch, "No such channel")
               next
             end
             
@@ -284,12 +273,12 @@ class IRCServer < WEBrick::GenericServer
             when /^!#/
               SafeChannel
             end
-            unless @channels.has_key?(ch)
-              @channels[ch] = chclass.new(self, sock, ch)
-              handle_reply(sock, @channels[ch].join(sock, keys[i]))
+            unless @channels.has_key?(ch.downcase)
+              set_channel(ch, chclass.new(self, user, ch) )
+              handle_reply(user, channel(ch).join(user, keys[i]))
             else
-              rpl = @channels[ch].join(sock, keys[i])
-              handle_reply(sock, rpl)
+              rpl = channel(ch).join(user, keys[i])
+              handle_reply(user, rpl)
             end
           }
         end
@@ -297,111 +286,110 @@ class IRCServer < WEBrick::GenericServer
         ch, msg = params
         msg ||= ""
         chs = ch.split(",")
-        chs.each{|ch|
-          @channels[ch].part(sock, msg)
-          if @channels[ch].members.empty?
-            @channels.delete(ch)
+        chs.each{|chname|
+          ch = channel(chname)
+          ch.part(user, msg)
+          if ch.members.empty?
+            @channels.delete(chname.downcase)
           end
-          @users[sock].joined_channels.delete(ch)
+          user.joined_channels.delete(ch)
         }
       when PING
-        send_client_message(sock, config[:ServerName], PONG, config[:ServerName], *params)
+        send_client_message(user, config[:ServerName], PONG, config[:ServerName], *params)
       when INFO
         config[:Info].each_line{|line|
           line.chomp!
           line.tojis!
-          send_server_message(sock, "371", line)
+          send_server_message(user, "371", line)
         }
-        send_server_message(sock, "374", "End of INFO list")
+        send_server_message(user, "374", "End of INFO list")
       when LINKS
-        send_server_message(sock, "365")
+        send_server_message(user, "365")
       when TIME
-        send_server_message(sock, "391", config[:ServerName], Time.now.to_s)
+        send_server_message(user, "391", config[:ServerName], Time.now.to_s)
       when PONG
-        @ping_threads[sock].kill
-        start_ping(sock)
+        @ping_threads[user].kill
+        start_ping(user)
       when INVITE
         if params.size < 2
           raise NotEnoughParameter
         else
           who, to = params
-          if tmp = @users.find{|k, v| v.nick == who}
-            s, usr = tmp
-            if usr.away?
-              msg = usr.away
-              send_server_message(sock, "301", who, msg)
+          if target = @users.find{|v| v.nick == who}
+            if target.away?
+              msg = target.away
+              send_server_message(user, "301", who, msg)
               return
             end
-            if ch = @channels[to]
-              handle_reply(sock, ch.invite(sock, s))
+            if ch = channel(to)
+              handle_reply(user, ch.invite(user, target))
             else
-              send_server_message(sock, "401", who, "No such nick/channel")
+              send_server_message(user, "401", who, "No such nick/channel")
             end
           else
-            send_server_message(sock, "401", who, "No such nick/channel")
+            send_server_message(user, "401", who, "No such nick/channel")
           end
         end
       when LIST
         if params.empty?
           chs = @channels.find_all{|k, v| v.visible?(nil)}
           chs.each{|k, v|
-            case (tpc = v.get_topic(sock, true))[0]
+            case (tpc = v.get_topic(user, true))[0]
             when "331"
               tpc = ""
             else
               tpc = tpc[-1]
             end
-            send_server_message(sock, "322", k, v.members.size.to_s, tpc)
+            send_server_message(user, "322", k, v.members.size.to_s, tpc)
           }
         else
-          chs = params[0].split(",").find_all{|name| @channels[name] && @channels[name].visible?(sock)}
+          chs = params[0].split(",").find_all{|name| channel(name) && channel(n).visible?(user)}
           chs.each{|k|
-            v = @channels[k]
-            uss = v.members.find_all{|m| !@users[m].invisible}
-            case (tpc = v.get_topic(sock, true))[0]
+            v = channel(k)
+            uss = v.members.find_all{|m| !m.invisible}
+            case (tpc = v.get_topic(user, true))[0]
             when "331"
               tpc = ""
             else
               tpc = tpc[-1]
             end
-            send_server_message(sock, "322", k, v.members.size.to_s, tpc)
+            send_server_message(user, "322", k, v.members.size.to_s, tpc)
           }
         end
-        send_server_message(sock, "323", "End of LIST")
+        send_server_message(user, "323", "End of LIST")
       when TOPIC
         chn, topic = params
-        unless ch = @channels[chn]
-          send_server_message(sock, "403", chn, "No such channel")
+        unless ch = channel(chn)
+          send_server_message(user, "403", chn, "No such channel")
           return
         end
         if params.size < 1
           raise NotEnoughParameter
         elsif params.size == 1
-          
-          send_server_message(sock, *ch.get_topic(sock))
+          send_server_message(user, *ch.get_topic(user))
         else
-          handle_reply(sock, ch.set_topic(sock, topic))
+          handle_reply(user, ch.set_topic(user, topic))
         end
       when PRIVMSG
         if params.size < 2
           raise NotEnoughParameter
         end
         to, msg = params
-        if ch = @channels[to]
+        if ch = channel(to)
           if msg.empty?
-            send_server_message(sock, "412", "No text to send")
+            send_server_message(user, "412", "No text to send")
           else
-            handle_reply(sock, ch.privmsg(sock, msg))
+            handle_reply(user, ch.privmsg(user, msg))
           end
-        elsif who = @users.find{|k, v| v.nick == to}
-          if who[1].away?
-            away = who[1].away
-            send_server_message(sock, "301", to, away)
+        elsif who = @users.find{|v| v.nick == to}
+          if who.away?
+            away = who.away
+            send_server_message(user, "301", to, away)
           else
-            send_client_message(who[0], @users[sock], PRIVMSG, who[1].nick, msg)
+            send_client_message(who, user, PRIVMSG, who.nick, msg)
           end
         else
-          send_server_message(sock, "401", to, "No such nick/channel")
+          send_server_message(user, "401", to, "No such nick/channel")
         end
       when NAMES
         if params.size < 1
@@ -409,7 +397,7 @@ class IRCServer < WEBrick::GenericServer
         else
           chs = params[0].split(",")
           chs.each{|ch|
-            handle_reply(sock, @channels[ch].names(sock))
+            handle_reply(user, channel(ch).names(user))
           }
         end
       when NOTICE
@@ -418,24 +406,24 @@ class IRCServer < WEBrick::GenericServer
           return
         end
         to, msg = params
-        if ch = @channels[to]
+        if ch = channel(to)
           if msg.empty?
-            send_server_message(sock, "412", "No text to send")
+            send_server_message(user, "412", "No text to send")
           else
-            handle_reply(sock, ch.notice(sock, msg))
+            handle_reply(user, ch.notice(user, msg))
           end
-        elsif who = @users.find{|k, v| v.nick == to}
-          send_client_message(who[0], @users[sock], NOTICE, who[1].nick, msg)
+        elsif who = @users.find{|v| v.nick == to}
+          send_client_message(who, user, NOTICE, user.nick, msg)
         else
-          send_server_message(sock, "401", to, "No such nick/channel")
+          send_server_message(user, "401", to, "No such nick/channel")
         end
       when AWAY
         if params.empty? || params[0].empty?
-          @users[sock].away = ""
-          send_server_message(sock, "305", "You are no longer marked as being away")
+          user.away = ""
+          send_server_message(user, "305", "You are no longer marked as being away")
         else
-          @users[sock].away = params.shift
-          send_server_message(sock, "306", "You have been marked as being away")
+          user.away = params.shift
+          send_server_message(user, "306", "You have been marked as being away")
         end
       when MODE
         if params.size < 1
@@ -443,48 +431,45 @@ class IRCServer < WEBrick::GenericServer
           return
         end
         to = params.shift
-        #p @channels
-        if ch = @channels[to]
-          handle_reply(sock, ch.handle_mode(sock, params))
-        elsif who = @users.find{|k, v| v.nick == to}
-          if who[0] == sock
+        if ch = channel(to)
+          handle_reply(user, ch.handle_mode(user, params))
+        elsif who = @users.find{|v| v.nick == to}
+          if who == user
             if params.empty?
-              send_server_message(sock, "221", who[1].get_mode_flags)
+              send_server_message(user, "221", who.get_mode_flags)
             else
-              rls = who[1].set_flags(params[0])
-              usr = @users[sock]
-              send_client_message(sock, usr, MODE, usr.nick, rls.join(" "))
+              rls = who.set_flags(params[0])
+              send_client_message(user, user, MODE, user.nick, rls.join(" "))
             end
           else
-            send_server_message(sock, "502", "Cannot change mode for other users")
+            send_server_message(user, "502", "Cannot change mode for other users")
           end
         else
-          send_server_message(sock, "401", to, "No such nick/channel")
+          send_server_message(user, "401", to, "No such nick/channel")
         end
       when NICK
         if params.empty?
-          send_server_message(sock, "431", "No nickname given")
+          send_server_message(user, "431", "No nickname given")
         else
-          user = @users[sock]
           nick = params[0]
           if nick == "0"
             nick = user.identifier.to_s
           elsif !correct_nick?(nick)
-            send_server_message(sock, "432", nick, "Erroneous nickname")
+            send_server_message(user, "432", nick, "Erroneous nickname")
             return
           end
-          if @users.any?{|s, us| us.nick == nick}
-            send_server_message(sock, "433", nick, "Nickname is already in use")
+          if us = user_from_nick(nick)
+            return if us == user
+            send_server_message(user, "433", nick, "Nickname is already in use")
           elsif user.restriction
-            send_server_message(sock, "484", "Your connection is restricted!")
+            send_server_message(user, "484", "Your connection is restricted!")
           else
-            send_client_message(sock, user, NICK, nick)
-            sended = []
+            send_client_message(user, user, NICK, nick)
+            sent = []
             user.joined_channels.each{|ch|
-              ch = @channels[ch]
               ch.members.each{|mem|
-                if !sended.include?(mem) && mem != sock
-                  sended << mem
+                if !sent.include?(mem) && mem != user
+                  sent << mem
                   send_client_message(mem, user, NICK, nick)
                 end
               }
@@ -493,75 +478,75 @@ class IRCServer < WEBrick::GenericServer
             user.nick = nick
           end
         end
+      when USER, PASS
+        user.socket.puts ERR_ALREADYREGISTRED.new(config[:ServerName], "462", [user.nick, "Unauthorized command (already registered)"])
       when WHOIS
         raise NotEnoughParameter if params.empty?
         params[0].split(",").each{|mask|
           reg = mask_to_regex(mask)
-          matched = @users.find_all{|s, usr| usr.nick =~ reg}
+          matched = @users.find_all{|usr| usr.nick =~ reg}
           if matched.empty?
-            send_server_message(sock, "401", mask, "No such nick/channel")
+            send_server_message(user, "401", mask, "No such nick/channel")
           else
-            matched.each{|sc, user|
-              send_server_message(sock, "311", user.nick, user.user, user.host, "*", user.real)
-              send_server_message(sock, "312", user.nick, config[:ServerName], "this server.")
-              send_server_message(sock, "313", user.nick, "is an IRC operator") if @operators.include?(sc)
+            matched.each{|target|
+              sc = target.socket
+              send_server_message(user, "311", target.nick, target.user, target.host, "*", target.real)
+              send_server_message(user, "312", target.nick, config[:ServerName], "this server.")
+              send_server_message(user, "313", target.nick, "is an IRC operator") if @operators.include?(target)
               chs = []
-              user.joined_channels.each{|ch|
-                ch = @channels[ch]
-                if ch.visible?(sock)
+              target.joined_channels.each{|ch|
+                if ch.visible?(user)
                   pr = ""
-                  if ch.mode.op?(sc)
+                  if ch.mode.op?(target)
                     pr = "@"
-                  else ch.mode.voiced?(sc)
+                  else ch.mode.voiced?(target)
                     pr = "+"
                   end
                   chs << pr+ch.name
                 end
               }
-              send_server_message(sock, "319", user.nick, chs.join(" "))
-              if user.away?
-                away = user.away
-                send_server_message(sock, "301", user.nick, away)
+              send_server_message(user, "319", target.nick, chs.join(" "))
+              if target.away?
+                away = target.away
+                send_server_message(user, "301", target.nick, away)
               end
-              send_server_message(sock, "318", user.nick, "End of WHOIS list")
+              send_server_message(user, "318", target.nick, "End of WHOIS list")
             }
           end
         }
       when WHOWAS
         raise NotEnoughParameter if params.empty?
         params[0].split(",").each{|nick|
-          if @users.any?{|s, us| us.nick == nick}
-            send_server_message(sock, "312", nick, config[:ServerName], "this server.")
+          if @users.any?{|us| us.nick == nick}
+            send_server_message(user, "312", nick, config[:ServerName], "this server.")
           elsif @old_nicks[nick].empty?
-            send_server_message(sock, "406", nick, "There was no such nickname")
+            send_server_message(user, "406", nick, "There was no such nickname")
           else
             @old_nicks[nick].each{|nms|
-              send_server_message(sock, "314", *nms)
+              send_server_message(user, "314", *nms)
             }
           end
-          send_server_message(sock, "369", nick, "End of WHOWAS")
+          send_server_message(user, "369", nick, "End of WHOWAS")
         }
       when WHO
         raise NotEnoughParameter if params.empty?
         mask = mask_to_regex(params[0])
-        chs = @channels.find_all{|name, ch| name =~ mask && ch.visible?(sock)}
+        chs = @channels.find_all{|name, ch| name =~ mask && ch.visible?(user)}
         unless chs.empty?
           chs.each{|name, ch|
-            ch.members.each{|sck|
-              usr = @users[sck]
-              nick, user, host, _, real = usr.to_a
+            ch.members.each{|usr|
               sym = usr.away? ? "G" : "H"
-              sym += @operators.include?(sck) ? "*" : ""
-              sym += ch.mode.op?(sck) ? "@" : (ch.mode.voiced?(sck) ? "+" : "")
-              send_server_message(sock, "352", name, user, host, config[:ServerName], nick, sym, "0 #{real}")
+              sym += @operators.include?(usr) ? "*" : ""
+              sym += ch.mode.op?(usr) ? "@" : (ch.mode.voiced?(usr) ? "+" : "")
+              send_server_message(user, "352", usr.name, usr.user, usr.host, config[:ServerName], usr.nick, sym, "0 #{real}")
             }
-            send_server_message(sock, "315", name, "End of WHO list")
+            send_server_message(user, "315", name, "End of WHO list")
           }
         else
-          usrs = @users.find_all{|sock, us| us.nick =~ mask || us.user =~ mask || us.host =~ mask}
-          usrs.each{|sk,usr|
-            send_server_message(sock, "352", "*", usr.user, usr.host, config[:ServerName], usr.nick, "H", "0 #{usr.real}")
-            send_server_message(sock, "315", usr.nick, "End of WHO list")
+          usrs = @users.find_all{|us| us.nick =~ mask || us.user =~ mask || us.host =~ mask}
+          usrs.each{|usr|
+            send_server_message(user, "352", "*", usr.user, usr.host, config[:ServerName], usr.nick, "H", "0 #{usr.real}")
+            send_server_message(user, "315", usr.nick, "End of WHO list")
           }
         end
       when KICK
@@ -570,109 +555,111 @@ class IRCServer < WEBrick::GenericServer
         whos = params[1].split(",")
         msg = params[2].to_s
         if chs.size == 1
-          if ch = @channels[chs[0]]
+          if ch = channel(chs[0])
             whos.each{|who|
-              if usr = @users.find{|s, us|us.nick==who}
-                handle_reply sock, ch.kick(usr[0], sock, msg)
+              if usr = @users.find{|us|us.nick==who}
+                handle_reply user, ch.kick(usr, user, msg)
               else
-                send_server_message(sock, "401", who, "No such nick/channel")
+                send_server_message(user, "401", who, "No such nick/channel")
               end
             }
           else
-            send_server_message(sock, "403", chs[0], "No such channel")
+            send_server_message(user, "403", chs[0], "No such channel")
           end
         elsif chs.size == whos.size
           chs.each_with_index{|chn, i|
-            if chn = @channels[chn]
-              if usr = @users[whos[i]]
-                handle_reply sock, ch.kick(usr, sock, msg)
+            if chn = channel(chn)
+              if usr = user_from_nick[whos[i]]
+                handle_reply user, ch.kick(usr, user, msg)
               else
-                send_server_message(sock, "401", whos[i], "No such nick/channel")
+                send_server_message(user, "401", whos[i], "No such nick/channel")
               end
             else
-              send_server_message(sock, "403", chn, "No such channel")
+              send_server_message(user, "403", chn, "No such channel")
             end
           }
         end
       when ISON
         raise NotEnoughParameter if params.empty?
-        a = params.find_all{|nick| @users.any?{|dum, us| us.nick == nick}}
-        send_server_message(sock, "303", a.join(" "))
+        a = params.find_all{|nick| @users.any?{|us| us.nick == nick}}
+        send_server_message(user, "303", a.join(" "))
       when USERHOST
         raise NotEnoughParameter if params.empty?
-        hoge = params[0..4]
-        hoge.map!{|nick|
-          if h = @users.find{|s, u| u.nick == nick}
-            s, u = h
-            suf = @operators.include?(s) ? "*" : ""
-            pre = u.away? ? "-" : "+"
-            usr = u.user
-            host = u.host
+        targs = params[0..4]
+        targs.map!{|nick|
+          if tg = @users.find{|u| u.nick == nick}
+            suf = @operators.include?(tg.socket) ? "*" : ""
+            pre = tg.away? ? "-" : "+"
+            usr = tg.user
+            host = tg.host
             nick + suf + "=" + pre + usr + "@" + host + " "
           else
             ""
           end
         }
-        send_server_message(sock, "302", hoge.join(" "))
+        send_server_message(user, "302", targs.join(" "))
       when QUIT
-        user = @users[sock]
-        send_client_message(sock, nil, ERROR, "Closing", "Link:", "#{user.nick}[#{user.user}@#{user.host}]", %Q!("#{params[0]}")!)
-        unregist(sock, params[0])
+        send_client_message(user, nil, ERROR, "Closing", "Link:", "#{user.nick}[#{user.user}@#{user.host}]", %Q!("#{params[0]}")!)
+        unregister(user, params[0])
       else
         raise UnknownCommand.new(msg.command)
       end
     rescue NotEnoughParameter => e
-      send_server_message(sock, "461", msg.command, "Not enough parameters")
+      send_server_message(user, "461", msg.command, "Not enough parameters")
     rescue UnknownCommand => e
-      send_server_message(sock, "421", e.cmd, "Unknown command")
+      send_server_message(user, "421", e.cmd, "Unknown command")
     rescue
       puts $!, $@
     end
   end
 
-  def handle_reply(sock, rpl)
+  def handle_reply(user, rpl)
     return unless rpl
     case rpl[0]
     when Array
       rpl.each{|rp|
-        handle_reply(sock, rp)
+        handle_reply(user, rp)
       }
     when Command
-      send_client_message(sock, @users[sock], *rpl)
+      send_client_message(user, user, *rpl)
     else
-      send_server_message(sock, *rpl)
+      send_server_message(user, *rpl)
     end
   end
 
-  def send_message(sock, user, msg, *args)
+  def send_message(to, from, msg, *args)
     case msg
     when Command
-      send_client_message(sock, user, msg, *args)
+      send_client_message(to, from, msg, *args)
     when Reply
-      send_server_message(sock, msg, *args)
+      send_server_message(to, msg, *args)
     end
   end
 
-  def send_client_message(sock, user, cmd, *args)
-    if sock.closed?
-      unregist(sock)
+  def send_client_message(to, from, cmd, *args)
+    if to.socket.closed?
+      unregister(to)
       return
     end
-    msg = cmd.new(user.to_s, cmd.name.split('::').last, args)
-    sock.puts msg
+    msg = cmd.new(from.to_s, cmd.name.split('::').last, args)
+    to.socket.puts msg
   end
 
-  def send_server_message(sock, msg, *args)
-    if sock.closed?
-      unregist(sock)
+  def send_server_message(to, msg, *args)
+    if to.socket.closed?
+      unregister(to.socket)
       return
     end
-    args.unshift @users[sock].nick
-    sock.puts Message.build(config[:ServerName], msg, args)
+    args.unshift to.nick
+    to.socket.puts Message.build(config[:ServerName], msg, args)
   end
 
-  def get_user(sock)
-    @users.fetch(sock){unregist(sock, "Conenction reset by peer")}
+  def channel(chname)
+    @channels[chname.downcase]
+  end
+
+  def set_channel(cn, val)
+    @channels[cn.downcase] = val
   end
 
   def start(*args)

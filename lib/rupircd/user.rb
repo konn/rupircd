@@ -13,7 +13,7 @@ require 'rupircd/channel'
 module IRCd
 
 class User
-  attr_reader :user, :host, :identifier
+  attr_reader :user, :host, :identifier, :socket
   attr_accessor :nick, :away, :invisible, :wallop, :restriction, :operator, :local_operator, :s, :joined_channels, :real
   @@identifier = 0
 
@@ -21,7 +21,7 @@ class User
     @nick + "!" + @user + "@" + @host
   end
 
-  def initialize(nick, user, host, real, mode=0)
+  def initialize(nick, user, host, real, socket, mode=0)
     @nick = nick
     @user = user
     @host = host
@@ -34,7 +34,7 @@ class User
     @operator = false
     @local_operator = false
     @s = false
-    
+    @socket = socket
     @joined_channels = []
   end
 
