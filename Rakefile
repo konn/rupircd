@@ -8,7 +8,8 @@ begin
     gemspec.description = "rupircd is a light IRC daemon written in 100% pure ruby."
     gemspec.authors = ["konn"]
     gemspec.extra_rdoc_files = ["README.ja.rd","README.rd","Usage.ja.rd","Usage.rd","Changes.ja.rd","Changes.rd"]
-    gemspec.files.exclude('**/.*')
+    gemspec.files.exclude('**/.DS_Store')
+    gemspec.files.exclude('**/.gemified')
   end
 rescue LoadError
   puts "Jeweler not available. Install it with: sudo gem install technicalpickles-jeweler -s http://gems.github.com"

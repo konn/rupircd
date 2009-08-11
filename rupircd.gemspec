@@ -21,6 +21,38 @@ Gem::Specification.new do |s|
      "Usage.ja.rd",
      "Usage.rd"
   ]
+  s.files = [
+    "Changes.ja.rd",
+     "Changes.rd",
+     "Manifest",
+     "README.ja.rd",
+     "README.rd",
+     "Rakefile",
+     "Usage.ja.rd",
+     "Usage.rd",
+     "VERSION",
+     "bin/mkpassword",
+     "bin/rupircd",
+     "changes.html",
+     "changes.ja.html",
+     "index.html",
+     "index.ja.html",
+     "info.txt",
+     "ircd.rb",
+     "lib/rupircd.rb",
+     "lib/rupircd/channel.rb",
+     "lib/rupircd/conf.rb",
+     "lib/rupircd/message.rb",
+     "lib/rupircd/server.rb",
+     "lib/rupircd/user.rb",
+     "lib/rupircd/utils.rb",
+     "mkpassword.rb",
+     "motd.txt",
+     "rupircd.gemspec",
+     "sample.conf",
+     "usage.html",
+     "usage.ja.html"
+  ]
   s.has_rdoc = true
   s.homepage = %q{http://github.com/konn/rupircd}
   s.rdoc_options = ["--charset=UTF-8"]
