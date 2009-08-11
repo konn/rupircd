@@ -5,7 +5,7 @@
 
 Gem::Specification.new do |s|
   s.name = %q{rupircd}
-  s.version = "0.6.1"
+  s.version = "0.6.2"
 
   s.required_rubygems_version = Gem::Requirement.new(">= 0") if s.respond_to? :required_rubygems_version=
   s.authors = ["konn"]
@@ -41,6 +41,7 @@ Gem::Specification.new do |s|
      "ircd.rb",
      "lib/rupircd.rb",
      "lib/rupircd/channel.rb",
+     "lib/rupircd/charcode.rb",
      "lib/rupircd/conf.rb",
      "lib/rupircd/message.rb",
      "lib/rupircd/server.rb",
