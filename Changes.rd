@@ -1,5 +1,10 @@
 =begin
 = ChangeLog
+== ver 0.6 2009-08-11T23:45:52+09:00
+* Refactoring
+* Increase version number
+* Fix almost all bugs!
+* Maybe little enbug :-)
 == ver 0.5b2 2008-08-27T12:17:46+09:00
 * Change directory construction
 == ver 0.5b1 2007-05-18T22:30:56+09:00

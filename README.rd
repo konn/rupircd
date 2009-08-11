@@ -1,7 +1,7 @@
 =begin
 = rupircd -- Ruby Pseudo IRC Deamon
 
-  ver 0.5b2 2008-08-27T12:17:46+09:00
+  ver 0.6 2009-08-11T23:45:52+09:00
   
   Copyright (c) 2008 Hiromi Ishii
   
@@ -61,6 +61,6 @@ Well, anyway, Source must be the best Manual for this time, I think.
 * WEBrick
 * ruby
 
-and who would read this README weitten in terrible English by Junior High School Student.
+and who would read this README weitten in terrible English by High School Student.
 
 =end
