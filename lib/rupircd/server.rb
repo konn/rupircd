@@ -545,6 +545,10 @@ class IRCServer < WEBrick::GenericServer
     puts_socket(user, ERR_ALREADYREGISTRED.new(config[:ServerName], "462", [user.nick, "Unauthorized command (already registered)"]))
   end
   
+  def on_pass(user, params)
+    puts_socket(user, ERR_ALREADYREGISTRED.new(config[:ServerName], "462", [user.nick, "Unauthorized command (already registered)"]))
+  end
+  
   def on_whois(user, params)
     raise NotEnoughParameter if params.empty?
     params[0].split(",").each{|mask|
