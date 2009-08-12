@@ -54,15 +54,16 @@ Gem::Specification.new do |s|
      "usage.html",
      "usage.ja.html"
   ]
+  s.has_rdoc = true
   s.homepage = %q{http://github.com/konn/rupircd}
   s.rdoc_options = ["--charset=UTF-8"]
   s.require_paths = ["lib"]
-  s.rubygems_version = %q{1.3.3}
+  s.rubygems_version = %q{1.3.1}
   s.summary = %q{rupircd - RUby Pseudo IRC Daemon}
 
   if s.respond_to? :specification_version then
     current_version = Gem::Specification::CURRENT_SPECIFICATION_VERSION
-    s.specification_version = 3
+    s.specification_version = 2
 
     if Gem::Version.new(Gem::RubyGemsVersion) >= Gem::Version.new('1.2.0') then
     else
