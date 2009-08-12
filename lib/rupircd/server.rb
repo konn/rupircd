@@ -31,8 +31,8 @@ class IRCServer < WEBrick::GenericServer
 
   include MonitorMixin
 
-  #class <<self
-    def self.define_oper_command(mtd, &pr)
+  class <<self
+    def define_oper_command(mtd, &pr)
       define_method(mtd){|usr, param|
         if usr.operator || usr.local_operator
           instance_eval(&pr)
@@ -41,7 +41,7 @@ class IRCServer < WEBrick::GenericServer
         end
       }
     end
-  #end
+  end
 
 
   def initialize(fconf, *args)
