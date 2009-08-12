@@ -33,8 +33,6 @@ class IRCServer < WEBrick::GenericServer
 
   #class <<self
     def self.define_oper_command(mtd, &pr)
-      #body = "__pre_#{mtd}"
-      #define_method(body, &pr)
       define_method(mtd){|usr, param|
         if usr.operator || usr.local_operator
           instance_eval(&pr)
