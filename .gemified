@@ -1,7 +1,0 @@
---- 
-:version: "0.5"
-:has_rdoc: true
-:homepage: http://konn.x0.com/ruby/rupircd/
-:author: Hiromi Ishii
-:name: rupircd
-:summary: rupircd is a light IRCd daemon written in 100% pure ruby.
