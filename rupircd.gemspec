@@ -9,7 +9,7 @@ Gem::Specification.new do |s|
 
   s.required_rubygems_version = Gem::Requirement.new(">= 0") if s.respond_to? :required_rubygems_version=
   s.authors = ["konn"]
-  s.date = %q{2009-08-12}
+  s.date = %q{2009-08-13}
   s.description = %q{rupircd is a light IRC daemon written in 100% pure ruby.}
   s.email = %q{mr_konn[at]jcom[dot]home[dot]ne[dot]jp}
   s.executables = ["mkpassword", "rupircd"]
