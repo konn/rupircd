@@ -5,11 +5,11 @@
 
 Gem::Specification.new do |s|
   s.name = %q{rupircd}
-  s.version = "0.6.3"
+  s.version = "0.6.4"
 
   s.required_rubygems_version = Gem::Requirement.new(">= 0") if s.respond_to? :required_rubygems_version=
   s.authors = ["konn"]
-  s.date = %q{2009-08-13}
+  s.date = %q{2009-08-16}
   s.description = %q{rupircd is a light IRC daemon written in 100% pure ruby.}
   s.email = %q{mr_konn[at]jcom[dot]home[dot]ne[dot]jp}
   s.executables = ["mkpassword", "rupircd"]
