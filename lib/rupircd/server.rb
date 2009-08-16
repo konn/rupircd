@@ -35,7 +35,7 @@ class IRCServer < WEBrick::GenericServer
     def define_oper_command(mtd, &pr)
       define_method(mtd){|usr, param|
         if usr.operator || usr.local_operator
-          instance_eval(&pr)
+          instance_exec(usr, param, &pr)
         else
           send_server_message(usr, "481", "Permission Denied - You're not an IRC operator")
         end
@@ -235,7 +235,6 @@ class IRCServer < WEBrick::GenericServer
   
   define_oper_command :on_rehash do |usr, params|
     cnf = @fconf.load
-    
     if Hash === cnf
       config.replace(cnf)
       send_server_message(usr, "382", "#{@fconf.path} :Rehashing")
@@ -281,6 +280,10 @@ class IRCServer < WEBrick::GenericServer
     send_server_message(user, "219", c.chr, "End of STATS report")
   end
 
+  def class_for_chname(chname)
+    # overridden in sub-classes
+  end
+
   def on_join(user, params)
     if params[0] == "0"
       user.joined_channels.each{|ch|
@@ -292,11 +295,6 @@ class IRCServer < WEBrick::GenericServer
       keys = params[1].split(",") if params.size >= 2
       keys ||= []
       chs.each_with_index{|ch, i|
-        unless channame?(ch)
-          send_server_message(user, "403", ch, "No such channel")
-          next
-        end
-        
         chclass = case ch
         when /^\+/
           NoModeChannel
@@ -304,6 +302,13 @@ class IRCServer < WEBrick::GenericServer
           Channel
         when /^!#/
           SafeChannel
+        else
+          if klass = class_for_chname(ch)
+            klass
+          else
+            send_server_message(user, "403", ch, "No such channel")
+            next
+          end
         end
         unless @channels.has_key?(ch.downcase)
           set_channel(ch, chclass.new(self, user, ch) )
