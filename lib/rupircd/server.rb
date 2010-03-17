@@ -84,6 +84,7 @@ class IRCServer < WEBrick::GenericServer
   
   def run(socket)
     socket.extend(MonitorMixin)
+    socket.puts
     user = nil
     nick = nil
     pass = nil
