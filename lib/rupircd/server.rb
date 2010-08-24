@@ -120,9 +120,9 @@ class IRCServer < WEBrick::GenericServer
     return unless nick && user
     start_ping(user)
     begin
-      host = Resolv.getname(socket.addr[-1])
+      host = Resolv.getname(socket.peeraddr[-1])
     rescue
-      host = socket.addr[-1]
+      host = socket.peeraddr[-1]
     end
     user = User.new(nick, "~"+user[0].split("@")[0], host, user[-1], socket, user[1])
     @old_nicks[nick].unshift user.to_a
